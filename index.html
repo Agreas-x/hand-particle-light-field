@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>手势粒子光场</title>
+<style>
+:root{--ink:#f8fafc;--muted:#94a3b8;--line:rgba(148,163,184,.18);--panel:rgba(15,23,42,.72);--accent:#ffd93d}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#030712;color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+body{overflow:hidden}#stage{position:fixed;inset:0;background:#000}canvas{position:absolute;inset:0;width:100%;height:100%;display:block}#video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.ui{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:28px 32px;pointer-events:none}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.brand{display:flex;align-items:center;gap:12px}.mark{width:38px;height:38px;border:1px solid rgba(255,255,255,.32);border-radius:13px;display:grid;place-items:center;background:rgba(255,255,255,.08);font-size:20px}.eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#a5b4fc}.title{font-size:clamp(22px,3vw,40px);font-weight:600;letter-spacing:-.04em;margin:2px 0 0}.status{display:flex;align-items:center;gap:9px;padding:10px 14px;border:1px solid var(--line);background:rgba(2,6,23,.46);border-radius:999px;font-size:12px;color:var(--muted);backdrop-filter:blur(16px)}.dot{width:8px;height:8px;border-radius:50%;background:#64748b;box-shadow:0 0 0 4px rgba(100,116,139,.14)}.dot.live{background:#4ade80;box-shadow:0 0 0 4px rgba(74,222,128,.14)}
+.bottom{display:flex;justify-content:space-between;align-items:flex-end;gap:24px}.hint{max-width:410px;color:#cbd5e1;font-size:14px;line-height:1.65;text-shadow:0 2px 14px rgba(0,0,0,.65)}.hint strong{color:#fff;font-weight:600}.legend{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:510px}.chip{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(2,6,23,.42);backdrop-filter:blur(12px);font-size:11px;color:#cbd5e1}.swatch{width:8px;height:8px;border-radius:50%;box-shadow:0 0 12px currentColor}.controls{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center;gap:14px;text-align:center;pointer-events:auto}.start{border:0;color:#09090b;background:#ffd93d;border-radius:999px;padding:14px 22px;font:600 14px inherit;cursor:pointer;box-shadow:0 0 0 8px rgba(255,217,61,.1),0 10px 32px rgba(255,217,61,.18);transition:.2s}.start:hover{transform:translateY(-2px);box-shadow:0 0 0 10px rgba(255,217,61,.12),0 16px 38px rgba(255,217,61,.24)}.start:disabled{opacity:.65;cursor:wait}.sub{font-size:12px;color:#94a3b8}.hidden{display:none!important}.error{color:#fda4af;font-size:13px;max-width:320px;line-height:1.5}
+@media(max-width:720px){.ui{padding:20px}.status{font-size:0;padding:11px}.status .dot{margin:0}.bottom{align-items:flex-start;flex-direction:column}.legend{justify-content:flex-start}.hint{font-size:13px}}
+</style>
+</head>
+<body>
+<div id="stage"><video id="video" playsinline muted></video><canvas id="canvas"></canvas></div>
+<div class="ui">
+  <div class="top"><div class="brand"><div class="mark">✦</div><div><div class="eyebrow">Gesture / Particle Study</div><div class="title">手势粒子光场</div></div></div><div class="status"><span id="statusDot" class="dot"></span><span id="statusText">等待摄像头</span></div></div>
+  <div class="bottom"><div class="hint"><strong>伸出你的手。</strong><br>指尖会点亮对应色彩，移动手掌让光粒子留下轨迹。画面只保留粒子，不显示摄像头影像。</div><div class="legend"><div class="chip"><i class="swatch" style="color:#FF6B6B;background:#FF6B6B"></i>拇指</div><div class="chip"><i class="swatch" style="color:#4ECDC4;background:#4ECDC4"></i>食指</div><div class="chip"><i class="swatch" style="color:#A78BFA;background:#A78BFA"></i>中指</div><div class="chip"><i class="swatch" style="color:#FBBF24;background:#FBBF24"></i>无名指</div><div class="chip"><i class="swatch" style="color:#60A5FA;background:#60A5FA"></i>小指</div></div></div>
+</div>
+<div id="controls" class="controls"><button id="start" class="start">开启手部捕捉</button><div class="sub">摄像头仅在本地浏览器中处理</div><div id="error" class="error hidden"></div></div>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(() => {
+  const canvas=document.getElementById('canvas'), ctx=canvas.getContext('2d',{alpha:false});
+  const video=document.getElementById('video'), start=document.getElementById('start'), controls=document.getElementById('controls');
+  const dot=document.getElementById('statusDot'), statusText=document.getElementById('statusText'), error=document.getElementById('error');
+  const colors=['#FF6B6B','#4ECDC4','#A78BFA','#FBBF24','#60A5FA'];
+  const particles=[]; const MAX=600; let hands, camera, running=false, lastHands=[]; let w=innerWidth,h=innerHeight,dpr=Math.min(devicePixelRatio||1,2);
+  const resize=()=>{w=innerWidth;h=innerHeight;canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}; addEventListener('resize',resize); resize();
+  const hex=(hex)=>{const n=parseInt(hex.slice(1),16);return [n>>16&255,n>>8&255,n&255]};
+  function spawn(x,y,color,size=2.4,burst=1){const [r,g,b]=hex(color);for(let i=0;i<burst;i++){if(particles.length>=MAX)particles.shift();const a=Math.random()*Math.PI*2, s=(Math.random()**1.8)*1.8+.15;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-.18,life:1,decay:.012+Math.random()*.012,size:size*(.7+Math.random()*.8),r,g,b})}}
+  function point(x,y,color,tip=false){const px=(1-x)*w,py=y*h;spawn(px,py,color,tip?3.6:2.2,tip?3:1); if(tip)spawn(px,py,'#fff1a8',2.2,1)}
+  function draw(){ctx.fillStyle='rgba(0,0,0,.15)';ctx.fillRect(0,0,w,h); for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vx*=.992;p.vy=p.vy*.992+.006;p.life-=p.decay;if(p.life<=0){particles.splice(i,1);continue}const a=Math.min(1,p.life)*.75;ctx.beginPath();ctx.fillStyle=`rgba(${p.r},${p.g},${p.b},${a})`;ctx.shadowBlur=p.size*4;ctx.shadowColor=ctx.fillStyle;ctx.arc(p.x,p.y,p.size*(.5+p.life),0,Math.PI*2);ctx.fill()}ctx.shadowBlur=0; requestAnimationFrame(draw)} draw();
+  function onResults(res){lastHands=res.multiHandLandmarks||[]; if(lastHands.length){dot.classList.add('live');statusText.textContent='手部已捕捉'; for(const lm of lastHands){const palm=lm[9];point(palm.x,palm.y,'#FFD93D',false);[4,8,12,16,20].forEach((idx,j)=>point(lm[idx].x,lm[idx].y,colors[j],true));[2,5,9,13,17].forEach((idx,j)=>point(lm[idx].x,lm[idx].y,colors[j],false))}}}
+  async function init(){start.disabled=true;statusText.textContent='正在启动';try{hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});hands.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:.65,minTrackingConfidence:.6});hands.onResults(onResults);camera=new Camera(video,{onFrame:async()=>{await hands.send({image:video})},width:1280,height:720});await camera.start();running=true;controls.classList.add('hidden');statusText.textContent='等待手部';dot.classList.remove('live')}catch(e){start.disabled=false;statusText.textContent='启动失败';error.textContent='无法访问摄像头。请检查浏览器权限，并使用 HTTPS 或 localhost 打开。';error.classList.remove('hidden');console.error(e)}} start.addEventListener('click',init);
+})();
+</script>
+</body></html>
+
